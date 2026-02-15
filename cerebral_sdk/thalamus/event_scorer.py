@@ -1,104 +1,132 @@
-"""Thalamus: Event scoring and filtering with Chaos/Foundation/Glow heuristics."""
-from typing import Dict, Optional
-from enum import Enum
+"""Thalamus Event Scorer with Vector-Based Novelty Detection.
+
+Replaces regex keyword matching with semantic similarity scoring
+using Hippocampus memory for truly subjective novelty detection.
+"""
 import re
+from enum import Enum
+from typing import Optional, Dict, Any
+from cerebral_sdk.hippocampus.memory_store import MemoryStore
 
 
 class EventType(Enum):
-    """Event classification based on Thalamic scoring."""
-    CHAOS = "chaos"  # Low novelty, routine
-    FOUNDATION = "foundation"  # Medium, structural
-    GLOW = "glow"  # High novelty, breakthrough
+    """Event classification based on novelty and significance."""
+    GLOW = "glow"  # High novelty: breakthrough moments
+    FOUNDATION = "foundation"  # Medium novelty: building blocks
+    CHAOS = "chaos"  # Low novelty: routine noise
 
 
-class ThalamusScorer:
-    """Thalamus-inspired event scoring and sensory gating."""
+class VectorEventScorer:
+    """Vector-based event scorer using semantic similarity.
     
-    def __init__(self, 
-                 chaos_threshold: float = 0.3,
-                 foundation_threshold: float = 0.6,
-                 glow_threshold: float = 0.8):
-        """Initialize with scoring thresholds."""
-        self.chaos_threshold = chaos_threshold
-        self.foundation_threshold = foundation_threshold
-        self.glow_threshold = glow_threshold
-        
-        # Keyword patterns for heuristic scoring
-        self.glow_keywords = [
-            r'breakthrough', r'discovery', r'insight', r'revelation',
-            r'eureka', r'novel', r'unprecedented', r'paradigm'
-        ]
-        self.foundation_keywords = [
-            r'important', r'significant', r'key', r'essential',
-            r'critical', r'core', r'fundamental'
-        ]
+    Instead of checking for keywords like 'breakthrough' and 'eureka',
+    this scorer queries the Hippocampus to find the nearest semantic
+    neighbor and computes novelty as:
     
-    def score_novelty(self, content: str, context: Dict = None) -> float:
-        """Score novelty using keyword heuristics and context."""
-        content_lower = content.lower()
-        score = 0.0
-        
-        # Check for glow keywords (high novelty)
-        for pattern in self.glow_keywords:
-            if re.search(pattern, content_lower):
-                score += 0.3
-        
-        # Check for foundation keywords (medium novelty)
-        for pattern in self.foundation_keywords:
-            if re.search(pattern, content_lower):
-                score += 0.15
-        
-        # Length heuristic (longer might be more novel)
-        word_count = len(content.split())
-        if word_count > 100:
-            score += 0.1
-        elif word_count < 10:
-            score -= 0.1
-        
-        # Context-based adjustment
-        if context:
-            if context.get('user_initiated'):
-                score += 0.2
-            if context.get('emotional_trigger'):
-                score += 0.15
-        
-        return min(1.0, max(0.0, score))
+        Novelty = 1.0 - max(cosine_similarity)
     
-    def classify_event(self, novelty_score: float) -> EventType:
-        """Classify event based on novelty score."""
-        if novelty_score >= self.glow_threshold:
-            return EventType.GLOW
-        elif novelty_score >= self.foundation_threshold:
-            return EventType.FOUNDATION
+    This makes the system purely subjective:
+    - Seen this exact thought before (similarity 0.99) -> Novelty ~0.0 (CHAOS)
+    - Never seen anything remotely like this (similarity 0.1) -> Novelty ~0.9 (GLOW)
+    """
+    
+    def __init__(self, hippocampus: Optional[MemoryStore] = None,
+                 adhd_mode: bool = True):
+        """Initialize the vector-based event scorer.
+        
+        Args:
+            hippocampus: MemoryStore instance for similarity queries
+            adhd_mode: Enable ADHD-optimized scoring (spike glow, suppress chaos)
+        """
+        self.hippocampus = hippocampus or MemoryStore()
+        self.adhd_mode = adhd_mode
+        
+        # Thresholds for event classification
+        self.glow_threshold = 0.8  # High novelty
+        self.chaos_threshold = 0.3  # Low novelty
+        
+        # ADHD multipliers
+        self.glow_spike_multiplier = 1.2  # Amplify breakthrough moments
+        self.chaos_suppression_multiplier = 0.8  # Dampen routine updates
+
+    def score_event(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Score an event using vector similarity to determine novelty.
+        
+        Args:
+            text: Event content to score
+            metadata: Optional metadata for the event
+            
+        Returns:
+            Dictionary containing:
+                - novelty: float (0.0-1.0)
+                - event_type: EventType (GLOW/FOUNDATION/CHAOS)
+                - should_process: bool (pass gate check)
+                - nearest_neighbor: Optional similarity info
+        """
+        # Query Hippocampus for nearest semantic neighbor
+        nearest = self.hippocampus.query_similar(text, k=1)
+        
+        if nearest and len(nearest) > 0:
+            # Compute novelty from semantic distance
+            similarity = nearest[0].get('similarity', 0.0)
+            novelty = 1.0 - similarity
         else:
-            return EventType.CHAOS
-    
-    def should_pass_gate(self, 
-                        novelty_score: float, 
-                        significance: float,
-                        min_threshold: float = 0.5) -> bool:
-        """Sensory gating: decide if event should pass to PFC."""
-        # Combine novelty and significance for gating decision
-        combined_score = (novelty_score * 0.6 + significance * 0.4)
-        return combined_score >= min_threshold
-    
-    def score_event(self, 
-                   content: str, 
-                   context: Optional[Dict] = None) -> Dict[str, any]:
-        """Full event scoring pipeline."""
-        novelty = self.score_novelty(content, context)
-        event_type = self.classify_event(novelty)
+            # No existing memories - this is completely novel
+            novelty = 1.0
         
-        # ADHD-specific: spike on glow events, suppress chaos
-        if event_type == EventType.GLOW:
-            adjusted_novelty = min(1.0, novelty * 1.2)
-        elif event_type == EventType.CHAOS:
-            adjusted_novelty = novelty * 0.8
-        else:
-            adjusted_novelty = novelty
+        # Classify event type
+        event_type = self._classify_event(novelty)
+        
+        # ADHD-specific adjustments
+        adjusted_novelty = self._apply_adhd_adjustments(novelty, event_type)
+        
+        # Gate check: Should this event be processed?
+        should_process = self.should_pass_gate(adjusted_novelty, 0.5)
         
         return {
             'novelty': adjusted_novelty,
+            'raw_novelty': novelty,
             'event_type': event_type.value,
-            'should_process': self.should_pass_gate(adjusted_novelty, 0.5)
+            'should_process': should_process,
+            'nearest_neighbor': nearest[0] if nearest else None,
+            'similarity_to_past': 1.0 - novelty if nearest else 0.0
+        }
+
+    def _classify_event(self, novelty: float) -> EventType:
+        """Classify event based on novelty score."""
+        if novelty >= self.glow_threshold:
+            return EventType.GLOW
+        elif novelty <= self.chaos_threshold:
+            return EventType.CHAOS
+        else:
+            return EventType.FOUNDATION
+
+    def _apply_adhd_adjustments(self, novelty: float, event_type: EventType) -> float:
+        """Apply ADHD-specific adjustments to novelty score."""
+        if not self.adhd_mode:
+            return novelty
+        
+        adjusted_novelty = novelty
+        
+        # Spike on GLOW events (amplify breakthrough moments)
+        if event_type == EventType.GLOW:
+            adjusted_novelty = min(1.0, novelty * self.glow_spike_multiplier)
+        
+        # Suppress CHAOS events (filter routine updates)
+        elif event_type == EventType.CHAOS:
+            adjusted_novelty = novelty * self.chaos_suppression_multiplier
+        
+        return adjusted_novelty
+
+    def should_pass_gate(self, novelty: float, threshold: float = 0.5) -> bool:
+        """Determine if event should be processed based on novelty gate."""
+        return novelty >= threshold
+
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get scorer statistics."""
+        return {
+            'memory_count': len(self.hippocampus.memories),
+            'adhd_mode': self.adhd_mode,
+            'glow_threshold': self.glow_threshold,
+            'chaos_threshold': self.chaos_threshold
         }
