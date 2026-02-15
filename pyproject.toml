@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "cerebral-sdk"
+version = "0.1.0"
+description = "Neuromorphic LLM orchestration prototype with brain-inspired modules"
+authors = ["harbz07"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+openai = "^1.12.0"
+sentence-transformers = "^2.3.1"
+torch = "^2.1.0"
+numpy = "^1.24.0"
+scipy = "^1.11.0"
+pydantic = "^2.5.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.3"
+pytest-asyncio = "^0.21.1"
+black = "^23.12.0"
+mypy = "^1.7.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
