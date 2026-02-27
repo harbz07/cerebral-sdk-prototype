@@ -86,6 +86,20 @@ if result['should_process']:
         hippocampus.consolidate(event)
 ```
 
+## Continuous Development Agents
+
+```python
+from cerebral_sdk.agents import DevelopmentTask, RepositoryDevelopmentAgent, TaskResult
+
+tasks = [DevelopmentTask(task_id="1", title="Improve test coverage")]
+
+def implement(task: DevelopmentTask) -> TaskResult:
+    return TaskResult(task_id=task.task_id, status="implemented", summary=task.title)
+
+agent = RepositoryDevelopmentAgent(implementer=implement)
+results = agent.run_continuously(task_source=lambda: tasks, max_cycles=1)
+```
+
 ## ADHD-Optimized Features
 
 - **Glow Event Spiking**: Amplify breakthrough moments (novelty > 0.8)
