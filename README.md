@@ -92,12 +92,16 @@ if result['should_process']:
 from cerebral_sdk.agents import DevelopmentTask, RepositoryDevelopmentAgent, TaskResult
 
 tasks = [DevelopmentTask(task_id="1", title="Improve test coverage")]
+queue = [tasks]
 
 def implement(task: DevelopmentTask) -> TaskResult:
     return TaskResult(task_id=task.task_id, status="implemented", summary=task.title)
 
 agent = RepositoryDevelopmentAgent(implementer=implement)
-results = agent.run_continuously(task_source=lambda: tasks, max_cycles=1)
+results = agent.run_continuously(
+    task_source=lambda: queue.pop(0) if queue else [],
+    max_cycles=5
+)
 ```
 
 ## ADHD-Optimized Features
